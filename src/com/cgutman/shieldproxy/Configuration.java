@@ -57,8 +57,11 @@ public class Configuration extends Activity {
 		}
 		else
 		{
-			startService(new Intent(Configuration.this, RelayService.class));
-			bindService(new Intent(Configuration.this, RelayService.class), connection, 0);
+			if (binder == null)
+			{
+				startService(new Intent(Configuration.this, RelayService.class));
+				bindService(new Intent(Configuration.this, RelayService.class), connection, 0);
+			}
 			statusButton.setText("Start");
 		}
 	}
@@ -118,12 +121,21 @@ public class Configuration extends Activity {
 	}
 	
 	@Override
-	protected void onDestroy() {
+	public void onPause() {
 		SharedPreferences.Editor editor = prefs.edit();
 		editor.putString(Configuration.HOST_PREF, hostText.getText().toString());
 		editor.putString(Configuration.PORT_PREF, portText.getText().toString());
 		editor.apply();
 		
+		super.onPause();
+	}
+	
+	@Override
+	protected void onDestroy() {
+		if (binder != null) {
+			binder.setListener(null);
+		}
+
 		unbindService(connection);
 		
 		super.onDestroy();
