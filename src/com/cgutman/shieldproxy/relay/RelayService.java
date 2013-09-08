@@ -199,6 +199,7 @@ public class RelayService extends Service implements Runnable {
 	private void notifyDnsSuccess()
 	{
 		consecutiveDnsFailures = 0;
+		displayedWarning = false;
 	}
 
 	@Override
