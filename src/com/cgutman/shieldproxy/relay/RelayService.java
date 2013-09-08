@@ -69,6 +69,9 @@ public class RelayService extends Service implements Runnable {
 			if (isRunning())
 				throw new IllegalStateException("Relay already running");
 			
+			consecutiveDnsFailures = 0;
+			displayedWarning = false;
+			
 			resolverSocket = new DatagramSocket();
 			resolverSocket.setSoTimeout(RelayService.REPLY_TIMEOUT);
 			
@@ -190,7 +193,7 @@ public class RelayService extends Service implements Runnable {
 				@Override
 				public void run() {
 					Toast.makeText(getApplicationContext(),
-							"We haven't received any DNS responses. Is the relay running on your PC?",
+							"We haven't received any DNS responses. Is the Windows Shield Proxy running on your PC?",
 							Toast.LENGTH_LONG).show();
 				}
 			});
