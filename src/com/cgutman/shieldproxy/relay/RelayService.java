@@ -32,6 +32,7 @@ public class RelayService extends Service implements Runnable {
 	public static final short MDNS_PORT = 5353;
 	public static InetAddress MDNS_ADDRESS;
 	public static final int REPLY_TIMEOUT = 3000;
+	public static final int REPLY_TRIES = 10;
 	
 	private MdnsBinder binder = new MdnsBinder();
 	
@@ -238,123 +239,129 @@ public class RelayService extends Service implements Runnable {
 				continue;
 			}
 		
-			// Check if this is the Shield MDNS query
-			Record question = message.getQuestion();
-			if (question != null)
+			// Check if this is the Shield MDNS query:
+			//
+			// The Shield MDNS query has exactly 1 record which
+			// is a question record containing the query:
+			// _nvstream._tcp.local
+			//
+			Record[] questions = message.getSectionArray(Section.QUESTION);
+			if ((questions.length == 1) &&
+				(message.getSectionArray(Section.ANSWER).length == 0) &&
+				(message.getSectionArray(Section.ADDITIONAL).length == 0) &&
+				(message.getSectionArray(Section.AUTHORITY).length == 0) &&
+				(questions[0].getName().toString().equals(NvStreamProtocol.NVSTREAM_MDNS_QUERY)))
 			{
-				if (question.getName().toString().equals(NvStreamProtocol.NVSTREAM_MDNS_QUERY))
+				System.out.println("Forwarding Shield MDNS query to "+peer+":"+port);
+				
+				// Send the MDNS query to the peer
+				DatagramPacket forwardedPacket = new DatagramPacket(recvPacket.getData(), recvPacket.getLength());
+				try {
+					forwardedPacket.setAddress(InetAddress.getByName(peer));
+					forwardedPacket.setPort(port);
+					resolverSocket.send(forwardedPacket);
+				} catch (IOException e) {
+					e.printStackTrace();
+					continue;
+				}
+				
+				// Receive the MDNS reply from the peer
+				DatagramPacket replyPacket = null;
+				Message reply = null;
+				for (int i = 0; i < RelayService.REPLY_TRIES; i++)
 				{
-					System.out.println("Forwarding Shield MDNS query to "+peer+":"+port);
-					
-					// Send the MDNS query to the peer
-					DatagramPacket forwardedPacket = new DatagramPacket(recvPacket.getData(), recvPacket.getLength());
+					replyPacket = new DatagramPacket(data, data.length);
 					try {
-						forwardedPacket.setAddress(InetAddress.getByName(peer));
-						forwardedPacket.setPort(port);
-						resolverSocket.send(forwardedPacket);
+						resolverSocket.receive(replyPacket);
+					} catch (InterruptedIOException e) {
+						System.out.println("DNS request timed out");
+						reply = null;
+						break;
+					} catch (IOException e) {
+						cleanupThread(e);
+						return;
+					}
+											
+					// Parse the reply
+					try {
+						reply = MdnsParser.parseDnsMessage(replyPacket);
 					} catch (IOException e) {
 						e.printStackTrace();
 						continue;
 					}
-					
-					// Receive the MDNS reply from the peer
-					DatagramPacket replyPacket;
-					Message reply;
-					for (;;)
-					{
-						replyPacket = new DatagramPacket(data, data.length);
-						try {
-							resolverSocket.receive(replyPacket);
-						} catch (InterruptedIOException e) {
-							System.out.println("DNS request timed out");
-							reply = null;
-							break;
-						} catch (IOException e) {
-							cleanupThread(e);
-							return;
-						}
-												
-						// Parse the reply
-						try {
-							reply = MdnsParser.parseDnsMessage(replyPacket);
-						} catch (IOException e) {
-							e.printStackTrace();
-							continue;
-						}
-												
-						// Check if this is the reply we want
-						Record[] records = reply.getSectionArray(Section.ANSWER);
-						if (records == null || records.length != 1)
-							continue;
-						
-						// This should match our query
-						if (records[0].getName().toString().equals(NvStreamProtocol.NVSTREAM_MDNS_QUERY))
-							break;
-					}
-					
-					// Make sure we got a packet back
-					if (reply == null)
-					{
-						notifyDnsFailure();
+											
+					// Check if this is the reply we want
+					Record[] records = reply.getSectionArray(Section.ANSWER);
+					if (records == null || records.length != 1)
 						continue;
+					
+					// This should match our query
+					if (records[0].getName().toString().equals(NvStreamProtocol.NVSTREAM_MDNS_QUERY))
+						break;
+				}
+				
+				// Make sure we got a packet back
+				if (reply == null)
+				{
+					notifyDnsFailure();
+					continue;
+				}
+				else
+				{
+					notifyDnsSuccess();
+				}
+				
+				System.out.println("Received reply from "+replyPacket.getSocketAddress());
+				
+				// Modify the reply authority records
+				Record[] records = reply.getSectionArray(Section.ADDITIONAL);
+				reply.removeAllRecords(Section.ADDITIONAL);
+				System.out.println("Found "+records.length+" additional records");
+				for (int i = 0; i < records.length; i++)
+				{
+					Record newRecord;
+					
+					if (records[i].getType() == Type.A)
+					{
+						System.out.println("Patching A record: "+
+								((ARecord)records[i]).getAddress()+
+								" -> "+replyPacket.getAddress());
+						newRecord = new ARecord(records[i].getName(),
+								records[i].getDClass(),
+								records[i].getTTL(),
+								replyPacket.getAddress());
+					}
+					else if ((records[i].getType() == Type.AAAA) ||
+							 (records[i].getType() == Type.A6))
+					{
+						// Drop these IPv6 records
+						System.out.println("Dropping AAAA/A6 record");
+						newRecord = null;
 					}
 					else
 					{
-						notifyDnsSuccess();
+						// Keep the others unmodified
+						newRecord = records[i];
 					}
 					
-					System.out.println("Received reply from "+replyPacket.getSocketAddress());
-					
-					// Modify the reply authority records
-					Record[] records = reply.getSectionArray(Section.ADDITIONAL);
-					reply.removeAllRecords(Section.ADDITIONAL);
-					System.out.println("Found "+records.length+" additional records");
-					for (int i = 0; i < records.length; i++)
+					if (newRecord != null)
 					{
-						Record newRecord;
-						
-						if (records[i].getType() == Type.A)
-						{
-							System.out.println("Patching A record: "+
-									((ARecord)records[i]).getAddress()+
-									" -> "+replyPacket.getAddress());
-							newRecord = new ARecord(records[i].getName(),
-									records[i].getDClass(),
-									records[i].getTTL(),
-									replyPacket.getAddress());
-						}
-						else if ((records[i].getType() == Type.AAAA) ||
-								 (records[i].getType() == Type.A6))
-						{
-							// Drop these IPv6 records
-							System.out.println("Dropping AAAA/A6 record");
-							newRecord = null;
-						}
-						else
-						{
-							// Keep the others unmodified
-							newRecord = records[i];
-						}
-						
-						if (newRecord != null)
-						{
-							reply.addRecord(newRecord, Section.ADDITIONAL);
-						}
+						reply.addRecord(newRecord, Section.ADDITIONAL);
 					}
-					
-					System.out.println("Sending modified reply to local multicast group");
-					
-					// Forward the reply to the local multicast group
-					byte[] wireReply = reply.toWire();
-					DatagramPacket sendPacket = new DatagramPacket(wireReply, wireReply.length);
-					sendPacket.setAddress(RelayService.MDNS_ADDRESS);
-					sendPacket.setPort(MDNS_PORT);
-					try {
-						msock.send(sendPacket);
-					} catch (IOException e) {
-						e.printStackTrace();
-						continue;
-					}
+				}
+				
+				System.out.println("Sending modified reply to local multicast group");
+				
+				// Forward the reply to the local multicast group
+				byte[] wireReply = reply.toWire();
+				DatagramPacket sendPacket = new DatagramPacket(wireReply, wireReply.length);
+				sendPacket.setAddress(RelayService.MDNS_ADDRESS);
+				sendPacket.setPort(MDNS_PORT);
+				try {
+					msock.send(sendPacket);
+				} catch (IOException e) {
+					e.printStackTrace();
+					continue;
 				}
 			}
 		}
