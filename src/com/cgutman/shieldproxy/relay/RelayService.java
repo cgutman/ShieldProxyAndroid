@@ -36,9 +36,11 @@ public class RelayService extends Service implements Runnable {
 	
 	private MdnsBinder binder = new MdnsBinder();
 	
+	private boolean stopping;
 	private MulticastSocket msock;
 	private SimpleResolver resolver;
 	private DatagramSocket resolverSocket;
+	private Thread relayThread;
 	
 	public static final int FAILURES_FOR_WARNING = 5;
 	private int consecutiveDnsFailures;
@@ -71,6 +73,7 @@ public class RelayService extends Service implements Runnable {
 			
 			consecutiveDnsFailures = 0;
 			displayedWarning = false;
+			stopping = false;
 			
 			resolverSocket = new DatagramSocket();
 			resolverSocket.setSoTimeout(RelayService.REPLY_TIMEOUT);
@@ -90,7 +93,7 @@ public class RelayService extends Service implements Runnable {
 			.setContentIntent(contentIntent);
 			startForeground(1, nb.build());
 
-			startRelayThread();
+			relayThread = startRelayThread();
 		}
 		
 		public boolean isRunning()
@@ -124,7 +127,19 @@ public class RelayService extends Service implements Runnable {
 		
 		public void stopRelay()
 		{
+			// Stop the relay thread
+			stopping = true;
 			RelayService.this.cleanupThread(null);
+			
+			// Wait for it to terminate
+			if (relayThread != null) {
+				try {
+					relayThread.join();
+				} catch (InterruptedException e) {
+					// Not much we can do here
+				}
+				relayThread = null;
+			}
 		}
 	}
 	
@@ -149,7 +164,7 @@ public class RelayService extends Service implements Runnable {
 	}
 	
 	private void cleanupThread(final Exception e)
-	{	
+	{
 		stopForeground(true);
 		
 		if (msock != null)
@@ -166,8 +181,9 @@ public class RelayService extends Service implements Runnable {
 		
 		resolver = null;
 		
-		// We need to wait to notify until after cleanup
-		if (e != null && e.getMessage() != null)
+		// We need to wait to notify until after cleanup but only if
+		// the error is unexpected (this is a bit janky)
+		if (e != null && e.getMessage() != null && !stopping)
 		{
 			handler.post(new Runnable() {
 				@Override
@@ -230,8 +246,6 @@ public class RelayService extends Service implements Runnable {
 				cleanupThread(e);
 				return;
 			}
-			
-			System.out.println("Received "+recvPacket.getLength()+" bytes from "+recvPacket.getAddress());
 			
 			// Decode it
 			Message message;
@@ -319,7 +333,6 @@ public class RelayService extends Service implements Runnable {
 				// Modify the reply authority records
 				Record[] records = reply.getSectionArray(Section.ADDITIONAL);
 				reply.removeAllRecords(Section.ADDITIONAL);
-				System.out.println("Found "+records.length+" additional records");
 				for (int i = 0; i < records.length; i++)
 				{
 					Record newRecord;
@@ -338,7 +351,6 @@ public class RelayService extends Service implements Runnable {
 							 (records[i].getType() == Type.A6))
 					{
 						// Drop these IPv6 records
-						System.out.println("Dropping AAAA/A6 record");
 						newRecord = null;
 					}
 					else
