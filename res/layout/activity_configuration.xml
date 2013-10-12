@@ -12,32 +12,54 @@
         android:id="@+id/hostTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
+        android:layout_alignParentRight="true"
         android:layout_alignParentTop="true"
-        android:layout_alignRight="@+id/portTextView"
+        android:layout_marginLeft="25dp"
+        android:layout_marginTop="14dp"
+        android:layout_toRightOf="@+id/hostLabel"
         android:ems="10"
         android:hint="@string/host_hint"
         android:inputType="text" >
-        
+
         <requestFocus />
-        
     </EditText>
+
+    <TextView
+        android:id="@+id/hostLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignBaseline="@+id/hostTextView"
+        android:layout_alignBottom="@+id/hostTextView"
+        android:layout_alignParentLeft="true"
+        android:text="@string/host_label"
+        android:textAppearance="?android:attr/textAppearanceLarge" />
+
+    <TextView
+        android:id="@+id/portLabel"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_alignBaseline="@+id/portTextView"
+        android:layout_alignBottom="@+id/portTextView"
+        android:layout_alignParentLeft="true"
+        android:text="@string/port_label"
+        android:textAppearance="?android:attr/textAppearanceLarge" />
 
     <Button
         android:id="@+id/statusButton"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_below="@+id/hostTextView"
+        android:layout_below="@+id/portTextView"
         android:layout_centerHorizontal="true"
-        android:layout_marginTop="42dp" />
+        android:layout_marginTop="16dp" />
 
     <EditText
         android:id="@+id/portTextView"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_alignParentLeft="true"
-        android:layout_alignParentRight="true"
+        android:layout_alignLeft="@+id/hostTextView"
+        android:layout_alignRight="@+id/hostTextView"
         android:layout_below="@+id/hostTextView"
+        android:layout_marginTop="19dp"
         android:ems="10"
         android:hint="@string/port_hint"
         android:inputType="number" />

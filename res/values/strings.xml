@@ -5,6 +5,9 @@
     <string name="config_activity_name">Shield Proxy Configuration</string>
     
     <string name="host_hint">IP address or host name of streaming PC</string>
-    <string name="port_hint">Port (usually 5354)</string>
+    <string name="port_hint">Usually 5354</string>
 
+    <string name="host_label">Target:</string>
+    <string name="port_label">Port:</string>
+    
 </resources>
